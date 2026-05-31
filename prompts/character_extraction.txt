@@ -1,0 +1,44 @@
+你是一个中文小说角色分析专家。请从以下小说片段中提取所有角色信息。
+
+## NLP 预标注提示
+{entity_hints}
+
+## 提取要求
+请仔细阅读文本，提取每个出现的角色，输出 JSON 格式。对于每个角色，提取：
+
+1. **canonical_name**: 角色的正式名称（最通用的称呼）
+2. **aliases**: 所有别名、昵称、称呼方式（如"小明"、"妈妈"、"老师"等）
+3. **gender**: 性别（male/female/unknown）
+4. **age_range**: 年龄范围（如"14-16"、"middle-aged"、"unknown"）
+5. **appearance**: 外貌描述（整合所有片段中的外貌信息）
+6. **personality**: 性格特点
+7. **role**: 在故事中的角色（protagonist/narrator/family_member/love_interest/supporting/antagonist）
+
+## 注意事项
+- 同一角色可能有多个称呼方式（如"妈妈"="母亲"="她"），请尽量合并
+- 如果文本中提到某角色但信息不完整，也请提取，将未知字段设为 null
+- 注意区分叙述者视角和角色视角
+- 对于家庭关系中的称呼（爸爸、妈妈、哥哥、姐姐等），请指出 family_role
+
+## 输出格式
+请只输出以下 JSON 格式，不要有其他内容：
+```json
+{{
+  "characters": [
+    {{
+      "canonical_name": "...",
+      "aliases": ["..."],
+      "gender": "male",
+      "age_range": "...",
+      "appearance": "...",
+      "personality": "...",
+      "role": "...",
+      "family_role": "...",
+      "notes": "..."
+    }}
+  ]
+}}
+```
+
+## 文本
+{text}

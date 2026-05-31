@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>novels2llm — 小说角色扮演数据提取管线</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Noto Sans SC', -apple-system, sans-serif;
+    background: linear-gradient(135deg, #0a0a1a 0%, #0f1123 30%, #1a1040 60%, #0a0a1a 100%);
+    color: #e0e0e0;
+    padding: 40px 20px;
+    min-height: 100vh;
+  }
+
+  .container { max-width: 1100px; margin: 0 auto; }
+
+  /* ── Header ── */
+  .header {
+    text-align: center; margin-bottom: 48px;
+    background: linear-gradient(135deg, rgba(88,166,255,0.1) 0%, rgba(168,130,255,0.08) 100%);
+    border: 1px solid rgba(88,166,255,0.15);
+    border-radius: 20px; padding: 36px 24px;
+  }
+  .header .icon { font-size: 48px; margin-bottom: 12px; }
+  .header h1 {
+    font-size: 32px; font-weight: 900;
+    background: linear-gradient(135deg, #58a6ff, #a882ff);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    margin-bottom: 8px;
+  }
+  .header .sub {
+    font-size: 15px; color: #8b949e; line-height: 1.7;
+  }
+  .header .tags {
+    margin-top: 16px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
+  }
+  .tag {
+    padding: 4px 14px; border-radius: 20px; font-size: 12px; font-weight: 600;
+  }
+  .tag-purple { background: rgba(168,130,255,0.15); color: #a882ff; border: 1px solid rgba(168,130,255,0.25); }
+  .tag-blue { background: rgba(88,166,255,0.15); color: #58a6ff; border: 1px solid rgba(88,166,255,0.25); }
+  .tag-green { background: rgba(63,185,80,0.15); color: #3fb950; border: 1px solid rgba(63,185,80,0.25); }
+  .tag-orange { background: rgba(240,136,62,0.15); color: #f0883e; border: 1px solid rgba(240,136,62,0.25); }
+
+  /* ── Sections ── */
+  .section {
+    background: rgba(22,27,34,0.7);
+    border: 1px solid rgba(48,54,61,0.6);
+    border-radius: 16px; padding: 32px; margin-bottom: 32px;
+    backdrop-filter: blur(10px);
+  }
+  .section-title {
+    font-size: 20px; font-weight: 700; margin-bottom: 24px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .section-title .num {
+    width: 32px; height: 32px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 900; color: #fff;
+  }
+  .num-1 { background: linear-gradient(135deg, #3fb950, #238636); }
+  .num-2 { background: linear-gradient(135deg, #58a6ff, #1f6feb); }
+  .num-3 { background: linear-gradient(135deg, #a882ff, #8250df); }
+  .num-4 { background: linear-gradient(135deg, #f0883e, #d4622b); }
+
+  /* ── Flow Grid ── */
+  .flow-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+  }
+  .flow-card {
+    background: rgba(13,17,23,0.8); border: 1px solid rgba(48,54,61,0.5);
+    border-radius: 12px; padding: 20px; position: relative;
+    transition: transform 0.2s, border-color 0.2s;
+  }
+  .flow-card:hover { transform: translateY(-2px); border-color: rgba(88,166,255,0.4); }
+  .flow-card .step {
+    position: absolute; top: -10px; left: 16px;
+    padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: 700;
+  }
+  .step-local { background: #238636; color: #fff; }
+  .step-llm { background: #8250df; color: #fff; }
+  .step-nlp { background: #1f6feb; color: #fff; }
+  .flow-card h4 { font-size: 15px; margin: 8px 0 6px; color: #e6edf3; }
+  .flow-card p { font-size: 12px; color: #8b949e; line-height: 1.6; }
+  .flow-card .tech {
+    margin-top: 8px; font-size: 11px; color: #58a6ff; font-family: monospace;
+  }
+
+  /* ── Arrow chain ── */
+  .arrow-chain {
+    display: flex; align-items: center; gap: 8px; margin: 24px 0;
+    overflow-x: auto; padding-bottom: 12px;
+  }
+  .arrow-node {
+    background: rgba(22,27,34,0.9); border: 1px solid rgba(48,54,61,0.6);
+    border-radius: 10px; padding: 14px 18px; min-width: 120px; text-align: center;
+    flex-shrink: 0; font-size: 13px; font-weight: 600;
+  }
+  .arrow-node.big { min-width: 160px; padding: 18px 24px; font-size: 14px; }
+  .arrow-arrow { color: #58a6ff; font-size: 20px; flex-shrink: 0; }
+
+  /* ── Extractor detail ── */
+  .extractor-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 700px) { .extractor-grid { grid-template-columns: 1fr; } }
+  .ext-card {
+    background: rgba(13,17,23,0.8); border: 1px solid rgba(48,54,61,0.4);
+    border-radius: 12px; padding: 20px;
+    border-left: 3px solid;
+  }
+  .ext-card h4 { font-size: 14px; margin-bottom: 8px; }
+  .ext-card .io {
+    display: flex; gap: 8px; margin-bottom: 10px; font-size: 11px;
+  }
+  .ext-card .io-in {
+    background: rgba(88,166,255,0.1); border: 1px solid rgba(88,166,255,0.2);
+    padding: 2px 8px; border-radius: 4px; color: #58a6ff;
+  }
+  .ext-card .io-out {
+    background: rgba(63,185,80,0.1); border: 1px solid rgba(63,185,80,0.2);
+    padding: 2px 8px; border-radius: 4px; color: #3fb950;
+  }
+  .ext-card .fields { font-size: 11px; color: #8b949e; line-height: 1.7; }
+
+  .color-char { border-left-color: #58a6ff; }
+  .color-world { border-left-color: #3fb950; }
+  .color-dial { border-left-color: #f0883e; }
+  .color-rel { border-left-color: #a882ff; }
+  .color-event { border-left-color: #f778ba; }
+
+  /* ── Cross-chunk diagram ── */
+  .cross-chunk {
+    display: flex; gap: 12px; align-items: stretch; margin: 20px 0;
+    overflow-x: auto; padding-bottom: 12px;
+  }
+  .chunk-box {
+    background: rgba(88,166,255,0.06); border: 1px dashed rgba(88,166,255,0.25);
+    border-radius: 10px; padding: 14px; min-width: 180px; flex-shrink: 0;
+  }
+  .chunk-box h5 { font-size: 12px; color: #58a6ff; margin-bottom: 8px; }
+  .chunk-box .raw { font-size: 11px; color: #8b949e; line-height: 1.6; }
+  .merge-box {
+    background: rgba(63,185,80,0.08); border: 1px solid rgba(63,185,80,0.3);
+    border-radius: 10px; padding: 14px; min-width: 180px; flex-shrink: 0;
+    display: flex; flex-direction: column; justify-content: center;
+  }
+  .merge-box h5 { font-size: 12px; color: #3fb950; margin-bottom: 8px; }
+  .merge-box .result { font-size: 11px; color: #e0e0e0; line-height: 1.8; }
+
+  /* ── Gap list ── */
+  .gap-list { display: grid; gap: 10px; }
+  .gap-item {
+    background: rgba(240,136,62,0.06); border: 1px solid rgba(240,136,62,0.2);
+    border-radius: 8px; padding: 12px 16px; font-size: 12px; color: #f0883e;
+    display: flex; align-items: flex-start; gap: 10px;
+  }
+  .gap-item .gap-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+
+  /* ── Footer ── */
+  .footer { text-align: center; margin-top: 48px; font-size: 12px; color: #484f58; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- ===== HEADER ===== -->
+<div class="header">
+  <div class="icon">📚 → 🎮</div>
+  <h1>novels2llm</h1>
+  <p class="sub">
+    从 34 本中文小说中自动提取结构化信息<br>
+    输出角色卡、关系图谱、世界观、对话库和时间线<br>
+    供角色扮演游戏 / AI NPC 训练使用
+  </p>
+  <div class="tags">
+    <span class="tag tag-purple">Claude / DeepSeek API</span>
+    <span class="tag tag-blue">jieba + HanLP NER</span>
+    <span class="tag tag-green">NetworkX 关系图</span>
+    <span class="tag tag-orange">Pydantic v2 + SQLite</span>
+  </div>
+</div>
+
+<!-- ===== STAGE 1: 预处理 ===== -->
+<div class="section">
+  <div class="section-title">
+    <span class="num num-1">1</span> 预处理 Pipeline — 从 Markdown 到结构化分块
+  </div>
+
+  <div class="arrow-chain" style="flex-wrap: wrap; justify-content: center;">
+    <div class="arrow-node">
+      📄 Markdown<br><small>YAML + 正文</small>
+    </div>
+    <span class="arrow-arrow">→</span>
+    <div class="arrow-node">
+      📋 解析 YAML<br><small>title / author<br>word_count</small>
+    </div>
+    <span class="arrow-arrow">→</span>
+    <div class="arrow-node">
+      🧹 清理格式<br><small>去除简介<br>元数据展示块</small>
+    </div>
+    <span class="arrow-arrow">→</span>
+    <div class="arrow-node">
+      🔍 去重<br><small>hash 前500字<br>+ 长度比对</small>
+    </div>
+    <span class="arrow-arrow">→</span>
+    <div class="arrow-node">
+      📑 分章<br><small>正则匹配<br>"第N章"</small>
+    </div>
+    <span class="arrow-arrow">→</span>
+    <div class="arrow-node big">
+      ✂️ 智能分块<br><small>6000字/块 · 句边界<br>200字重叠</small>
+    </div>
+  </div>
+
+  <div class="flow-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+    <div class="flow-card">
+      <span class="step step-local">本地</span>
+      <h4>YAML Frontmatter 解析</h4>
+      <p>提取 title, author, word_count, chapter_count 等元数据，构建 NovelMetadata 对象</p>
+      <div class="tech">PyYAML</div>
+    </div>
+    <div class="flow-card">
+      <span class="step step-local">本地</span>
+      <h4>章节边界检测</h4>
+      <p>支持多种格式：### 第1章、第一章、第01章。中文数字自动转整数</p>
+      <div class="tech">chapter_splitter.py</div>
+    </div>
+    <div class="flow-card">
+      <span class="step step-local">本地</span>
+      <h4>智能分块策略</h4>
+      <p>章边界优先 · 单章>8000字则在句边界切分 · 200字块间重叠保持上下文连续</p>
+      <div class="tech">smart_chunker.py · 11块/5万字</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== STAGE 2: NLP ===== -->
+<div class="section">
+  <div class="section-title">
+    <span class="num num-2">2</span> NLP 预标注 — 给 LLM 提供文本提示
+  </div>
+
+  <div class="arrow-chain" style="flex-wrap: wrap; justify-content: center;">
+    <div class="arrow-node big">
+      📦 Chunk<br><small>~6000 字</small>
+    </div>
+    <span class="arrow-arrow">→</span>
+    <div class="arrow-node">
+      🔤 jieba 分词<br><small>4400 tokens<br>+ 词性标注</small>
+    </div>
+    <span class="arrow-arrow">→</span>
+    <div class="arrow-node">
+      🏷️ HanLP NER<br><small>人名/地名<br>/组织/时间</small>
+    </div>
+    <span class="arrow-arrow">→</span>
+    <div class="arrow-node">
+      💬 对话检测<br><small>正则匹配 ""<br>51-83条/块</small>
+    </div>
+    <span class="arrow-arrow">→</span>
+    <div class="arrow-node big">
+      📤 NLP Hints<br><small>注入 LLM<br>Prompt</small>
+    </div>
+  </div>
+
+  <div class="flow-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+    <div class="flow-card">
+      <span class="step step-nlp">NLP</span>
+      <h4>jieba 分词 &amp; POS</h4>
+      <p>中文分词 + 词性标注。nr=人名, ns=地名, t=时间。为后续 NER fallback 提供基础</p>
+      <div class="tech">jieba.posseg</div>
+    </div>
+    <div class="flow-card">
+      <span class="step step-nlp">NLP</span>
+      <h4>HanLP NER</h4>
+      <p>ELECTRA 模型做命名实体识别。失败时自动降级为 jieba POS 标签抽取 (nr→PERSON, ns→LOCATION)</p>
+      <div class="tech">hanlp / fallback: jieba</div>
+    </div>
+    <div class="flow-card">
+      <span class="step step-nlp">NLP</span>
+      <h4>对话引用检测</h4>
+      <p>正则匹配中文弯引号 "" 内的文本，提取上下文(-80字)并尝试推测说话人 (XXX说/道)</p>
+      <div class="tech">re.compile + _infer_speaker</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== STAGE 3: LLM 提取 ===== -->
+<div class="section">
+  <div class="section-title">
+    <span class="num num-3">3</span> LLM 提取 — 5 个 Extractor 并行工作
+  </div>
+
+  <!-- Extractor cards -->
+  <div class="extractor-grid">
+
+    <!-- Character -->
+    <div class="ext-card color-char">
+      <h4>👤 Character Extractor</h4>
+      <div class="io">
+        <span class="io-in">📥 6000字 + NLP实体列表</span>
+        <span class="io-out">📤 角色 JSON</span>
+      </div>
+      <div class="fields">
+        <strong>提取字段：</strong><br>
+        canonical_name · aliases[] · gender<br>
+        age_range · appearance · personality<br>
+        role · family_role<br>
+        <br><strong>输出示例：</strong><br>
+        <span style="color:#e0e0e0">林鸿儒</span> <span style="color:#8b949e">| male | 16-18<br>
+        别名: 小儒, 鸿儒, 亲哥哥<br>
+        性格: 孝顺、性欲强、有征服欲</span>
+      </div>
+    </div>
+
+    <!-- World -->
+    <div class="ext-card color-world">
+      <h4>🌍 World Extractor</h4>
+      <div class="io">
+        <span class="io-in">📥 前2章 (开局信息密集)</span>
+        <span class="io-out">📤 世界观 JSON</span>
+      </div>
+      <div class="fields">
+        <strong>提取字段：</strong><br>
+        era · genre · setting_summary<br>
+        locations[{name, type, description}]<br>
+        items[{name, type, description}]<br>
+        special_rules[] · key_themes[]<br>
+        <br><strong>只在 Chunk 0 运行</strong>，开局世界观信息最密集
+      </div>
+    </div>
+
+    <!-- Dialogue -->
+    <div class="ext-card color-dial">
+      <h4>💬 Dialogue Extractor</h4>
+      <div class="io">
+        <span class="io-in">📥 NLP对话span + 上下文</span>
+        <span class="io-out">📤 对话 + 说话人</span>
+      </div>
+      <div class="fields">
+        <strong>两步策略：</strong><br>
+        ❶ NLP正则提取 "" 引号内文本<br>
+        ❷ LLM 批10条做说话人归属<br>
+        <br>
+        <strong>输出：</strong><br>
+        speaker · listener · content<br>
+        context · chapter · confidence<br>
+        <br><span style="color:#f0883e">⚠ 情色内容可能被API过滤</span>
+      </div>
+    </div>
+
+    <!-- Relationship -->
+    <div class="ext-card color-rel">
+      <h4>🔗 Relationship Extractor</h4>
+      <div class="io">
+        <span class="io-in">📥 文本 + 已知角色列表</span>
+        <span class="io-out">📤 关系 JSON</span>
+      </div>
+      <div class="fields">
+        <strong>提取字段：</strong><br>
+        character_a · character_b<br>
+        rel_type (spouse/parent/lover/...)<br>
+        direction · intimacy_level<br>
+        evidence[] · confidence<br>
+        <br><strong>跨块串联：</strong><br>
+        消歧后用 name_map 替换原始名
+      </div>
+    </div>
+
+    <!-- Event -->
+    <div class="ext-card color-event">
+      <h4>⏱️ Event Extractor</h4>
+      <div class="io">
+        <span class="io-in">📥 文本 + chapter 上下文</span>
+        <span class="io-out">📤 事件 JSON</span>
+      </div>
+      <div class="fields">
+        <strong>提取字段：</strong><br>
+        event_id · description<br>
+        participants[] · chapter_order<br>
+        time_marker · is_flashback<br>
+        <br><strong>排序：</strong><br>
+        块内按 chapter_order<br>
+        跨块按 chapter → global_order
+      </div>
+    </div>
+
+  </div>
+
+  <!-- API call flow -->
+  <div style="background:rgba(130,80,223,0.06);border:1px solid rgba(130,80,223,0.2);border-radius:10px;padding:16px;margin-top:16px;text-align:center;">
+    <span style="color:#a882ff;font-weight:600;font-size:13px;">
+      📡 每块调用 5 次 API · 6000字文本 + NLP Hints 注入 Prompt · DeepSeek/Claude 兼容
+    </span>
+  </div>
+</div>
+
+<!-- ===== STAGE 4-6: 跨块融合 ===== -->
+<div class="section">
+  <div class="section-title">
+    <span class="num num-4">4-6</span> 跨块融合 — 消歧 · 关系图 · 时间线
+  </div>
+
+  <!-- Cross-chunk visual -->
+  <div class="cross-chunk">
+    <div class="chunk-box">
+      <h5>📦 Chunk 0</h5>
+      <div class="raw">
+        角色: 林鸿儒, 张淑惠<br>
+        关系: 小儒 → 妈咪<br>
+        事件: ch1_evt1~8<br>
+        对话: 51条
+      </div>
+    </div>
+    <div class="chunk-box">
+      <h5>📦 Chunk 1</h5>
+      <div class="raw">
+        角色: 鸿儒, 淑惠, 陈雪芬<br>
+        关系: 鸿儒 → 妈<br>
+        事件: ch1_evt1~6<br>
+        对话: 83条
+      </div>
+    </div>
+    <div class="chunk-box">
+      <h5>📦 Chunk 2</h5>
+      <div class="raw">
+        角色: 儒, 母亲, 林芯茵<br>
+        关系: 惠 → 母亲<br>
+        事件: ch1_evt1~10<br>
+        对话: 51条
+      </div>
+    </div>
+    <span style="font-size:24px;align-self:center;color:#3fb950;">⟹</span>
+    <div class="merge-box">
+      <h5>✅ Stage 4 消歧输出</h5>
+      <div class="result">
+        <strong>20条原始 → 10个唯一角色</strong><br><br>
+        林鸿儒 ← [小儒, 鸿儒, 儒, 亲哥哥]<br>
+        张淑惠 ← [妈咪, 妈, 母亲, 淑惠]<br>
+        陈雪芬 ← [陈老师, 雪芬, 导师]
+      </div>
+    </div>
+    <span style="font-size:24px;align-self:center;color:#3fb950;">⟹</span>
+    <div class="merge-box">
+      <h5>🕸️ Stage 5 关系图</h5>
+      <div class="result">
+        <strong>9 nodes, 12 edges</strong><br><br>
+        林鸿儒──parent──张淑惠<br>
+        林鸿儒──lover──张淑惠<br>
+        陈雪芬──spouse──侯荣贤<br>
+        陈雪芬──lover──李宏宾
+      </div>
+    </div>
+  </div>
+
+  <!-- Stage 4-6 details -->
+  <div class="flow-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+    <div class="flow-card">
+      <span class="step step-local">Stage 4</span>
+      <h4>别名消歧</h4>
+      <p>
+        ❶ 精确名匹配<br>
+        ❷ 别名重叠检测 (>50%)<br>
+        ❸ 编辑距离相似度 (>85%)<br>
+        → 构建 name_map 映射表
+      </p>
+      <div class="tech">alias_resolver.py<br>entity_merger.py</div>
+    </div>
+    <div class="flow-card">
+      <span class="step step-local">Stage 5</span>
+      <h4>关系图谱</h4>
+      <p>
+        ❶ 关系人名 → 规范名映射<br>
+        ❷ NetworkX 有向图构建<br>
+        ❸ (A,B,type) 去重<br>
+        ❹ 冲突按 confidence 择优
+      </p>
+      <div class="tech">NetworkX DiGraph<br>relationship_graph.py</div>
+    </div>
+    <div class="flow-card">
+      <span class="step step-local">Stage 6</span>
+      <h4>时间线排序</h4>
+      <p>
+        ❶ 按 chapter 粗排<br>
+        ❷ 章内按 chapter_order 细排<br>
+        ❸ 构建事件 DAG<br>
+        ❹ causal_link 因果关联
+      </p>
+      <div class="tech">timeline_graph.py</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== OUTPUT ===== -->
+<div class="section">
+  <div class="section-title">
+    <span style="font-size:24px;">📤</span> Stage 7: 导出
+  </div>
+
+  <div class="arrow-chain" style="flex-wrap: wrap; justify-content: center;">
+    <div class="arrow-node big" style="background:rgba(88,166,255,0.1);border-color:rgba(88,166,255,0.3);">
+      🧠 NovelWorld<br><small>Pydantic Model</small>
+    </div>
+    <span class="arrow-arrow">→</span>
+    <div class="arrow-node" style="background:rgba(63,185,80,0.08);border-color:rgba(63,185,80,0.3);">
+      📄 JSON<br><small>108KB/本<br>完整数据</small>
+    </div>
+    <span class="arrow-arrow">→</span>
+    <div class="arrow-node" style="background:rgba(168,130,255,0.08);border-color:rgba(168,130,255,0.3);">
+      🗄️ SQLite<br><small>7 tables<br>novels/characters/<br>relationships/dialogues<br>timeline/locations/items</small>
+    </div>
+    <span class="arrow-arrow">→</span>
+    <div class="arrow-node" style="background:rgba(240,136,62,0.08);border-color:rgba(240,136,62,0.3);">
+      📝 角色卡<br><small>Markdown<br>10张/本</small>
+    </div>
+  </div>
+</div>
+
+<!-- ===== DATA FLOW ===== -->
+<div class="section">
+  <div class="section-title">
+    <span style="font-size:24px;">🔄</span> 数据流总览
+  </div>
+
+  <pre style="font-size:12px;line-height:1.8;color:#8b949e;background:rgba(13,17,23,0.5);padding:20px;border-radius:10px;overflow-x:auto;">
+<span style="color:#58a6ff;">┌─ Stage 1 ─────────────────────────────────────────────────────────┐</span>
+<span style="color:#8b949e;">│  .md 文件  →  YAML解析  →  去重  →  分章  →  Chunk[]               │</span>
+<span style="color:#58a6ff;">└────────────────────────────────────────────────────────────────────┘</span>
+                              ↓
+<span style="color:#a882ff;">┌─ Stage 2 ──────────────────┐    ┌─ Stage 3 (每块) ───────────────┐</span>
+<span style="color:#8b949e;">│  jieba 分词  →  tokens[]   │    │  5 个 Extractor                │</span>
+<span style="color:#8b949e;">│  HanLP NER  →  entities[]  │───→│  CharacterExtractor            │</span>
+<span style="color:#8b949e;">│  "" 提取    →  dialogues[] │    │  WorldExtractor                │</span>
+<span style="color:#a882ff;">└────────────────────────────┘    │  DialogueExtractor             │</span>
+                                  │  RelationshipExtractor         │
+                                  │  EventExtractor                │</span>
+                                  <span style="color:#a882ff;">└────────────────────────────────┘</span>
+                                              ↓
+<span style="color:#3fb950;">┌─ Stage 4 ────────┐   ┌─ Stage 5 ────────┐   ┌─ Stage 6 ────────┐</span>
+<span style="color:#8b949e;">│  别名消歧        │   │  NetworkX 关系图│   │  事件 DAG        │</span>
+<span style="color:#8b949e;">│  20 raw → 10 uq  │──→│  9 nodes 12 edges│   │  causal link     │</span>
+<span style="color:#8b949e;">│  name_map 构建   │   │  冲突解决       │   │  global_order    │</span>
+<span style="color:#3fb950;">└──────────────────┘   └─────────────────┘   └──────────────────┘</span>
+                                              ↓
+<span style="color:#f0883e;">┌─ Stage 7 ─────────────────────────────────────────────────────────┐</span>
+<span style="color:#8b949e;">│  NovelWorld (Pydantic)  →  JSON  +  SQLite  +  Markdown 角色卡    │</span>
+<span style="color:#f0883e;">└────────────────────────────────────────────────────────────────────┘</span></pre>
+</div>
+
+<!-- ===== GAPS ===== -->
+<div class="section" style="border-color:rgba(240,136,62,0.25);">
+  <div class="section-title">
+    <span style="font-size:24px;">⚠️</span> 已知缺口
+  </div>
+  <div class="gap-list">
+    <div class="gap-item">
+      <span class="gap-icon">①</span>
+      <div>
+        <strong>对话缺少精确位置</strong>
+        <span style="color:#8b949e">— dialogue 只有 chapter 字段，无 char_offset/line_index，无法精确对齐原文</span>
+      </div>
+    </div>
+    <div class="gap-item">
+      <span class="gap-icon">②</span>
+      <div>
+        <strong>事件跨块未去重</strong>
+        <span style="color:#8b949e">— 每块独立编号 ch1_evt1，3块产生3个同名事件，需全局去重排序</span>
+      </div>
+    </div>
+    <div class="gap-item">
+      <span class="gap-icon">③</span>
+      <div>
+        <strong>对话与事件无桥接</strong>
+        <span style="color:#8b949e">— 两者独立提取，唯一交集是 chapter 字段，无法关联</span>
+      </div>
+    </div>
+    <div class="gap-item">
+      <span class="gap-icon">④</span>
+      <div>
+        <strong>关系类型未校验</strong>
+        <span style="color:#8b949e">— 母子关系被误标为 sibling，缺少关系合理性校验规则</span>
+      </div>
+    </div>
+    <div class="gap-item">
+      <span class="gap-icon">⑤</span>
+      <div>
+        <strong>缓存未启用</strong>
+        <span style="color:#8b949e">— Stage 3 缓存机制代码已有，但测试脚本绕过了缓存层</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== STATS ===== -->
+<div class="section">
+  <div class="section-title">
+    <span style="font-size:24px;">📊</span> 测试数据 (青春韵事 · 前3块 · 18000字)
+  </div>
+
+  <div class="extractor-grid">
+    <div class="ext-card color-char">
+      <h4>👤 角色提取</h4>
+      <div class="fields">
+        <strong>20 条原始 → 10 个唯一</strong><br>
+        包含: canonical_name, aliases, gender,<br>
+        age_range, appearance, personality, role<br>
+        别名消歧成功率: 50% 压缩比<br>
+      </div>
+    </div>
+    <div class="ext-card color-world">
+      <h4>🌍 世界观</h4>
+      <div class="fields">
+        <strong>1 个世界设定</strong><br>
+        4 个地点 (医院/家/学校/登山处)<br>
+        4 个物品 (毛巾/脸盆/钮扣/牛奶)<br>
+        时代: 现代都市 | 类型: 情色小说
+      </div>
+    </div>
+    <div class="ext-card color-dial">
+      <h4>💬 对话</h4>
+      <div class="fields">
+        <strong>185 条对话</strong><br>
+        185/185 有说话人归属<br>
+        NLP提取 + LLM批10条归属<br>
+        51 + 83 + 51 = 185 条
+      </div>
+    </div>
+    <div class="ext-card color-rel">
+      <h4>🔗 关系</h4>
+      <div class="fields">
+        <strong>24 raw → 19 mapped → 12 edge</strong><br>
+        9 个节点 · 12 条边<br>
+        spouse/parent/lover/sibling/friend<br>
+        confidence: 0.5 ~ 1.0
+      </div>
+    </div>
+    <div class="ext-card color-event">
+      <h4>⏱️ 事件</h4>
+      <div class="fields">
+        <strong>24 个事件</strong><br>
+        8 + 6 + 10 = 24<br>
+        含 participants, chapter_order,<br>
+        time_marker, is_flashback
+      </div>
+    </div>
+    <div style="background:rgba(13,17,23,0.8);border:1px solid rgba(48,54,61,0.4);border-radius:12px;padding:20px;display:flex;flex-direction:column;justify-content:center;align-items:center;">
+      <div style="font-size:28px;font-weight:900;color:#58a6ff;">15+</div>
+      <div style="font-size:13px;color:#8b949e;">API 调用</div>
+      <div style="font-size:28px;font-weight:900;color:#3fb950;margin-top:8px;">~180s</div>
+      <div style="font-size:13px;color:#8b949e;">总耗时</div>
+    </div>
+  </div>
+</div>
+
+<!-- Footer -->
+<div class="footer">
+  novels2llm · Novel Analysis Pipeline for Role-Playing · 2026
+</div>
+
+</div>
+</body>
+</html>

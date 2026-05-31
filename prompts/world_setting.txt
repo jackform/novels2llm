@@ -1,0 +1,50 @@
+你是一个中文小说世界观分析专家。请从以下小说片段中提取世界观和场景信息。
+
+## NLP 预标注提示
+{entity_hints}
+
+## 提取要求
+请仔细阅读文本，提取世界观相关信息，输出 JSON 格式：
+
+1. **era**: 时代背景（如"现代都市"、"古代"、"架空"等）
+2. **genre**: 小说类型
+3. **setting_summary**: 世界/场景的总体描述
+4. **locations**: 提取所有地点
+   - name: 地点名称
+   - type: 类型（school/home/office/city/nature/other）
+   - description: 描述
+5. **items**: 提取所有重要物品
+   - name: 物品名称
+   - type: 类型
+   - description: 描述
+6. **special_rules**: 特殊规则或设定（如有）
+7. **key_themes**: 关键主题
+
+## 输出格式
+请只输出以下 JSON 格式，不要有其他内容：
+```json
+{{
+  "era": "...",
+  "genre": "...",
+  "setting_summary": "...",
+  "locations": [
+    {{
+      "name": "...",
+      "type": "...",
+      "description": "..."
+    }}
+  ],
+  "items": [
+    {{
+      "name": "...",
+      "type": "...",
+      "description": "..."
+    }}
+  ],
+  "special_rules": [],
+  "key_themes": []
+}}
+```
+
+## 文本
+{text}

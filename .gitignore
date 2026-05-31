@@ -1,0 +1,30 @@
+# Environment
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+*.egg
+.pytest_cache/
+
+# Virtual environment
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Data & Output (large files, generated)
+data/jia_ting_luan_lun/
+data/output/
+data/*.db
+data/*.sqlite
+
+# OS
+.DS_Store
+Thumbs.db

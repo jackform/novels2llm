@@ -1,0 +1,42 @@
+你是一个中文小说关系分析专家。请从以下小说片段中提取角色之间的关系。
+
+## 已知角色
+{known_characters}
+
+## 提取要求
+请分析文本中的角色互动，提取所有关系，输出 JSON 格式：
+
+1. **character_a**: 角色A的名称
+2. **character_b**: 角色B的名称
+3. **rel_type**: 关系类型（spouse/parent/child/sibling/relative/friend/rival/lover/colleague/classmate/neighbor/other）
+4. **direction**: 关系方向（a_to_b/b_to_a/bidirectional）
+5. **intimacy_level**: 亲密程度（close/intimate/distant/hostile/neutral）
+6. **evidence**: 支持此关系的文本片段（1-2句原文）
+7. **confidence**: 置信度（0.0-1.0）
+
+## 注意事项
+- 家庭关系（父母、子女、兄弟姐妹、配偶）要明确标注
+- 注意区分角色之间的实际关系和表面称呼
+- 多人之间的复杂关系要分别列出
+- 关注角色对话和互动中透露的关系信息
+
+## 输出格式
+请只输出以下 JSON 格式，不要有其他内容：
+```json
+{{
+  "relationships": [
+    {{
+      "character_a": "...",
+      "character_b": "...",
+      "rel_type": "...",
+      "direction": "bidirectional",
+      "intimacy_level": "...",
+      "evidence": ["..."],
+      "confidence": 0.8
+    }}
+  ]
+}}
+```
+
+## 文本
+{text}
