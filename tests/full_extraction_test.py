@@ -151,14 +151,31 @@ for r in all_relationships:
     r['character_b'] = b
     mapped_rels.append(r)
 
-# Deduplicate relationships (same pair + same type)
-seen_rels = set()
+# Deduplicate relationships (same pair + same type, sorted to catch reversed pairs)
+seen_rels = {}
 unique_rels = []
 for r in mapped_rels:
-    key = (r['character_a'], r['character_b'], r.get('rel_type', ''))
-    if key not in seen_rels:
-        seen_rels.add(key)
-        unique_rels.append(r)
+    norm_a, norm_b = sorted([r['character_a'], r['character_b']])
+    key = (norm_a, norm_b, r.get('rel_type', ''))
+    if key in seen_rels:
+        # Merge calling names from reversed duplicate
+        prev = seen_rels[key]
+        prev_entry = seen_rels[key]
+        if r['character_a'] == prev_entry['character_a'] and r['character_b'] == prev_entry['character_b']:
+            for name in r.get('a_calls_b', []):
+                if name not in prev.get('a_calls_b', []): prev.setdefault('a_calls_b', []).append(name)
+            for name in r.get('b_calls_a', []):
+                if name not in prev.get('b_calls_a', []): prev.setdefault('b_calls_a', []).append(name)
+        else:
+            for name in r.get('a_calls_b', []):
+                if name not in prev.get('b_calls_a', []): prev.setdefault('b_calls_a', []).append(name)
+            for name in r.get('b_calls_a', []):
+                if name not in prev.get('a_calls_b', []): prev.setdefault('a_calls_b', []).append(name)
+        if r.get('confidence', 0) > prev.get('confidence', 0):
+            prev['confidence'] = r['confidence']
+        continue
+    seen_rels[key] = r
+    unique_rels.append(r)
 
 print(f"Mapped & deduplicated relationships: {len(unique_rels)}")
 

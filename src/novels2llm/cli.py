@@ -211,11 +211,28 @@ def _get_novel_files(args: list[str]) -> list[Path]:
     return files
 
 
+def _normalize_labels(labels: list) -> list[dict]:
+    """Normalize relational_labels to list of {caller, label} dicts."""
+    result = []
+    for item in labels:
+        if isinstance(item, dict):
+            caller = item.get('caller', '').strip()
+            label = item.get('label', '').strip()
+            if label:
+                result.append({'caller': caller or 'unknown', 'label': label})
+        elif isinstance(item, str):
+            item = item.strip()
+            if item:
+                result.append({'caller': 'unknown', 'label': item})
+    return result
+
+
 def _dict_to_character(d: dict) -> Character:
     """Convert dict to Character model."""
     return Character(
         canonical_name=d.get('canonical_name', ''),
         aliases=d.get('aliases', []),
+        relational_labels=_normalize_labels(d.get('relational_labels', [])),
         gender=d.get('gender'),
         age_range=d.get('age_range'),
         appearance=d.get('appearance'),

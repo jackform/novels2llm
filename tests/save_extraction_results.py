@@ -27,6 +27,22 @@ NOVEL_FILE = Path('data/jia_ting_luan_lun/qing-chun-yun-shi.md')
 OUTPUT_DIR = Path('data/output')
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+
+def _normalize_rlabels(labels: list) -> list[dict]:
+    """Normalize relational_labels to list of {caller, label} dicts."""
+    result = []
+    for item in labels:
+        if isinstance(item, dict):
+            caller = item.get('caller', '').strip()
+            label = item.get('label', '').strip()
+            if label:
+                result.append({'caller': caller or 'unknown', 'label': label})
+        elif isinstance(item, str):
+            item = item.strip()
+            if item:
+                result.append({'caller': 'unknown', 'label': item})
+    return result
+
 # ─── Stage 1 + 2 ────────────────────────────────────────────────
 print("Stage 1+2: Preprocess, Chunk, NLP...")
 result = preprocess_novel(NOVEL_FILE)
@@ -147,15 +163,34 @@ for c in resolved_chars:
 def map_name(name):
     return name_map.get(name, name)
 
-# Map relationships
-mapped_rels, seen_keys = [], set()
+# Map relationships (normalized dedup: sorted key for lookup, prev a/b for direction detection)
+mapped_rels, seen_keys = [], {}
 for r in all_relationships:
     a, b = map_name(r.get('character_a','')), map_name(r.get('character_b',''))
     if not a or not b or a == b: continue
-    key = (a, b, r.get('rel_type',''))
-    if key in seen_keys: continue
-    seen_keys.add(key)
+    norm_a, norm_b = sorted([a, b])
+    key = (norm_a, norm_b, r.get('rel_type',''))
+    if key in seen_keys:
+        prev = seen_keys[key]
+        # Check reversal against prev's actual a/b, not against sorted order
+        if a == prev['character_a'] and b == prev['character_b']:
+            # Same direction: merge directly
+            for name in r.get('a_calls_b', []):
+                if name not in prev.setdefault('a_calls_b', []): prev['a_calls_b'].append(name)
+            for name in r.get('b_calls_a', []):
+                if name not in prev.setdefault('b_calls_a', []): prev['b_calls_a'].append(name)
+        else:
+            # Reversed direction: swap a_calls_b ↔ b_calls_a
+            for name in r.get('a_calls_b', []):
+                if name not in prev.setdefault('b_calls_a', []): prev['b_calls_a'].append(name)
+            for name in r.get('b_calls_a', []):
+                if name not in prev.setdefault('a_calls_b', []): prev['a_calls_b'].append(name)
+        # Take higher confidence
+        if r.get('confidence', 0) > prev.get('confidence', 0):
+            prev['confidence'] = r['confidence']
+        continue
     r_copy = dict(r); r_copy['character_a'] = a; r_copy['character_b'] = b
+    seen_keys[key] = r_copy
     mapped_rels.append(r_copy)
 
 # Map dialogues
@@ -172,9 +207,9 @@ for r in mapped_rels:
     g.add_relationship(r['character_a'], r['character_b'], rel_type=r.get('rel_type','unknown'), direction=r.get('direction','bidirectional'), evidence=r.get('evidence',[]), confidence=r.get('confidence',0.5))
 
 # ─── Build NovelWorld ───────────────────────────────────────────
-characters = [Character(canonical_name=c['canonical_name'], aliases=c.get('aliases',[]), gender=c.get('gender'), age_range=c.get('age_range'), appearance=c.get('appearance'), personality=c.get('personality'), role=c.get('role')) for c in resolved_chars]
+characters = [Character(canonical_name=c['canonical_name'], aliases=c.get('aliases',[]), relational_labels=_normalize_rlabels(c.get('relational_labels',[])), gender=c.get('gender'), age_range=c.get('age_range'), appearance=c.get('appearance'), personality=c.get('personality'), role=c.get('role')) for c in resolved_chars]
 
-relationships = [Relationship(character_a=r['character_a'], character_b=r['character_b'], rel_type=r['rel_type'], direction=r.get('direction','bidirectional'), intimacy_level=r.get('intimacy_level'), evidence=r.get('evidence',[]), confidence=r.get('confidence',0.5)) for r in mapped_rels]
+relationships = [Relationship(character_a=r['character_a'], character_b=r['character_b'], rel_type=r['rel_type'], direction=r.get('direction','bidirectional'), intimacy_level=r.get('intimacy_level'), a_calls_b=r.get('a_calls_b',[]), b_calls_a=r.get('b_calls_a',[]), evidence=r.get('evidence',[]), confidence=r.get('confidence',0.5)) for r in mapped_rels]
 
 dialogues = [Dialogue(speaker=d['speaker'], listener=d.get('listener'), content=d['content'], context=d.get('context'), chapter=d.get('chapter')) for d in mapped_dialogues]
 

@@ -8,7 +8,8 @@ class Character(BaseModel):
     """A character extracted from the novel."""
 
     canonical_name: str = Field(description="Primary/canonical name of the character")
-    aliases: list[str] = Field(default_factory=list, description="Other names, nicknames, titles used for this character")
+    aliases: list[str] = Field(default_factory=list, description="Identity aliases: name variants and nicknames (NOT relational labels like '妈妈', '哥哥')")
+    relational_labels: list[dict] = Field(default_factory=list, description="Who calls this character what. Each entry: {caller: str, label: str}. e.g. [{'caller': '马小伟', 'label': '妈妈'}, {'caller': '老王', 'label': '老婆'}]. These are speaker-dependent but can aid deduplication when (caller, label) pairs overlap.")
     gender: Optional[str] = Field(default=None, description="male, female, or other")
     age_range: Optional[str] = Field(default=None, description="e.g., '18-25', 'middle-aged', 'elderly'")
     appearance: Optional[str] = Field(default=None, description="Physical description")

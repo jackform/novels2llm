@@ -1,5 +1,8 @@
 """Character extraction using Claude API."""
 
+import json
+import datetime
+from pathlib import Path
 from typing import Optional
 from .base import BaseExtractor
 
@@ -41,5 +44,32 @@ class CharacterExtractor(BaseExtractor):
         ) + known_hint
 
         response = self._call_claude(prompt)
-        data = self._parse_json_response(response)
-        return data.get('characters', [])
+        try:
+            data = self._parse_json_response(response)
+            return data.get('characters', [])
+        except Exception:
+            # Check if response looks truncated (ended mid-structure)
+            stripped = response.strip().rstrip('`').strip()
+            is_truncated = (
+                not stripped.endswith('}') or
+                len(response) < 200 or
+                stripped.endswith('"') or
+                stripped.endswith(':')
+            )
+            if is_truncated:
+                print(f"  [RETRY] Response truncated ({len(response)} chars), retrying with more tokens...")
+                response = self._call_claude(prompt, max_tokens=8192)
+                try:
+                    data = self._parse_json_response(response)
+                    return data.get('characters', [])
+                except Exception:
+                    pass
+
+            # Save raw response for debugging
+            debug_dir = Path('data/output/debug')
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            debug_file = debug_dir / f'char_extract_fail_{ts}.txt'
+            debug_file.write_text(response, encoding='utf-8')
+            print(f"  [DEBUG] Raw response saved to {debug_file}")
+            return []

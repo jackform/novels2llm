@@ -23,6 +23,8 @@ class Relationship(BaseModel):
     rel_type: str = Field(description="Type of relationship: spouse, parent, child, sibling, friend, rival, etc.")
     direction: str = Field(default="bidirectional", description="a_to_b, b_to_a, or bidirectional")
     intimacy_level: Optional[str] = Field(default=None, description="close, intimate, distant, hostile, etc.")
+    a_calls_b: list[str] = Field(default_factory=list, description="How character_a addresses character_b in dialogue (e.g. '妈咪', '老师')")
+    b_calls_a: list[str] = Field(default_factory=list, description="How character_b addresses character_a in dialogue (e.g. '小儒', '儿子')")
     evidence: list[str] = Field(default_factory=list, description="Text snippets supporting this relationship")
     source_chapter: Optional[int] = Field(default=None, description="Chapter where this relationship is established")
     confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="Confidence score for this relationship")

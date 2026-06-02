@@ -56,7 +56,7 @@ class BaseExtractor:
         return str(message.content[0])
 
     def _parse_json_response(self, response: str) -> dict:
-        """Extract JSON from Claude's response."""
+        """Extract JSON from Claude's response, with LLM JSON repair."""
         # Try to find JSON in markdown code block
         m = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', response, re.DOTALL)
         if m:
@@ -72,9 +72,39 @@ class BaseExtractor:
         try:
             return json.loads(json_str)
         except json.JSONDecodeError:
-            # Try to fix common JSON issues
-            json_str = json_str.replace('\n', ' ').replace('  ', ' ')
-            return json.loads(json_str)
+            # Apply progressive JSON repairs common in LLM output
+            repaired = self._repair_json(json_str)
+            return json.loads(repaired)
+
+    @staticmethod
+    def _repair_json(json_str: str) -> str:
+        """Apply common LLM JSON repairs."""
+        s = json_str
+
+        # 1. Remove BOM and invisible characters
+        s = s.replace('\ufeff', '').replace('\u200b', '')
+
+        # 2. Replace Chinese/smart quotes with straight quotes inside strings
+        #    Only outside of already-escaped contexts
+        s = s.replace('\u201c', '"').replace('\u201d', '"')  # " "
+        s = s.replace('\u2018', "'").replace('\u2019', "'")  # ' '
+        s = s.replace('\uff08', '(').replace('\uff09', ')')  # （ ）
+        s = s.replace('\uff1a', ':').replace('\uff0c', ',')  # ： ，
+
+        # 3. Remove trailing commas before ] or }
+        s = re.sub(r',\s*([}\]])', r'\1', s)
+
+        # 4. Fix missing closing brackets: count braces
+        open_braces = s.count('{') - s.count('}')
+        open_brackets = s.count('[') - s.count(']')
+        s += '}' * open_braces + ']' * open_brackets
+
+        # 5. Fix single-quoted JSON (LLMs sometimes use single quotes)
+        if s.count('"') < 4 and s.count("'") > 4:
+            # JSON should use double quotes; try replacing top-level single quotes
+            pass  # Too risky for general case; skip
+
+        return s
 
     def extract(self, text: str, **kwargs) -> list[dict]:
         """Extract information from text. Override in subclasses."""

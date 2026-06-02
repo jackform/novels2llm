@@ -38,14 +38,28 @@ def merge_character_entries(
 
     # Collect all aliases
     all_aliases = set()
+    all_relational_labels = []
+    seen_label_keys = set()
     for entry in entries:
         all_aliases.update(entry.get('aliases', []))
+        for item in entry.get('relational_labels', []):
+            if isinstance(item, dict):
+                key = (item.get('caller', ''), item.get('label', ''))
+                if key not in seen_label_keys:
+                    seen_label_keys.add(key)
+                    all_relational_labels.append({'caller': key[0], 'label': key[1]})
+            elif isinstance(item, str):
+                key = ('unknown', item)
+                if key not in seen_label_keys:
+                    seen_label_keys.add(key)
+                    all_relational_labels.append({'caller': 'unknown', 'label': item})
     all_aliases.discard(best_name)
 
     # Merge fields: prefer the longest/most detailed value
     merged = {
         'canonical_name': best_name,
         'aliases': sorted(all_aliases),
+        'relational_labels': all_relational_labels,
     }
 
     for field in ['gender', 'age_range', 'appearance', 'personality', 'role', 'family_role']:

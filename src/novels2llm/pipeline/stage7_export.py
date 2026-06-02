@@ -25,7 +25,8 @@ def export_to_json(novel_world: NovelWorld, output_path: Optional[Path] = None) 
 def export_to_sqlite(novel_world: NovelWorld, db_path: Optional[Path] = None) -> Path:
     """Export NovelWorld to SQLite database.
 
-    Creates tables: novels, characters, relationships, dialogues, timeline, locations, items.
+    Creates tables: novels, characters, relationships, dialogues,
+    timeline, locations, items.
     """
     if db_path is None:
         db_path = config.OUTPUT_DIR / "novels.db"
@@ -53,7 +54,8 @@ def export_to_sqlite(novel_world: NovelWorld, db_path: Optional[Path] = None) ->
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             novel_id TEXT REFERENCES novels(novel_id),
             canonical_name TEXT NOT NULL,
-            aliases TEXT,  -- JSON array
+            aliases TEXT,  -- JSON array (identity aliases only)
+            relational_labels TEXT,  -- JSON array of {caller, label} objects
             gender TEXT,
             age_range TEXT,
             appearance TEXT,
@@ -70,6 +72,8 @@ def export_to_sqlite(novel_world: NovelWorld, db_path: Optional[Path] = None) ->
             rel_type TEXT NOT NULL,
             direction TEXT DEFAULT 'bidirectional',
             intimacy_level TEXT,
+            a_calls_b TEXT,  -- JSON array
+            b_calls_a TEXT,  -- JSON array
             evidence TEXT,  -- JSON array
             confidence REAL DEFAULT 0.5
         );
@@ -139,13 +143,15 @@ def export_to_sqlite(novel_world: NovelWorld, db_path: Optional[Path] = None) ->
     # Insert characters
     for char in novel_world.characters:
         cursor.execute("""
-            INSERT INTO characters (novel_id, canonical_name, aliases, gender,
-                age_range, appearance, personality, role, first_chapter)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO characters (novel_id, canonical_name, aliases,
+                relational_labels, gender, age_range, appearance, personality,
+                role, first_chapter)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             novel_id,
             char.canonical_name,
             json.dumps(char.aliases, ensure_ascii=False),
+            json.dumps(char.relational_labels, ensure_ascii=False),
             char.gender,
             char.age_range,
             char.appearance,
@@ -158,8 +164,9 @@ def export_to_sqlite(novel_world: NovelWorld, db_path: Optional[Path] = None) ->
     for rel in novel_world.relationships:
         cursor.execute("""
             INSERT INTO relationships (novel_id, character_a, character_b,
-                rel_type, direction, intimacy_level, evidence, confidence)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                rel_type, direction, intimacy_level, a_calls_b, b_calls_a,
+                evidence, confidence)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             novel_id,
             rel.character_a,
@@ -167,6 +174,8 @@ def export_to_sqlite(novel_world: NovelWorld, db_path: Optional[Path] = None) ->
             rel.rel_type,
             rel.direction,
             rel.intimacy_level,
+            json.dumps(rel.a_calls_b, ensure_ascii=False),
+            json.dumps(rel.b_calls_a, ensure_ascii=False),
             json.dumps(rel.evidence, ensure_ascii=False),
             rel.confidence,
         ))
@@ -244,13 +253,17 @@ def export_character_cards(novel_world: NovelWorld, output_dir: Optional[Path] =
 
 def _generate_character_card(char, novel_world: NovelWorld) -> str:
     """Generate a Markdown character card."""
-    # Find related characters
-    related = set()
+    # Find related characters with calling names
+    related = []
     for rel in novel_world.relationships:
         if rel.character_a == char.canonical_name:
-            related.add(f"{rel.character_b} ({rel.rel_type})")
+            calls = f" → {', '.join(rel.a_calls_b)}" if rel.a_calls_b else ""
+            called = f" ← {', '.join(rel.b_calls_a)}" if rel.b_calls_a else ""
+            related.append(f"{rel.character_b} ({rel.rel_type}){calls}{called}")
         elif rel.character_b == char.canonical_name:
-            related.add(f"{rel.character_a} ({rel.rel_type})")
+            calls = f" → {', '.join(rel.b_calls_a)}" if rel.b_calls_a else ""
+            called = f" ← {', '.join(rel.a_calls_b)}" if rel.a_calls_b else ""
+            related.append(f"{rel.character_a} ({rel.rel_type}){calls}{called}")
 
     lines = [
         f"# {char.canonical_name}",
@@ -266,6 +279,15 @@ def _generate_character_card(char, novel_world: NovelWorld) -> str:
     if char.aliases:
         lines.append(f"- **别名**: {', '.join(char.aliases)}")
 
+    if char.relational_labels:
+        label_strs = []
+        for rl in char.relational_labels:
+            if isinstance(rl, dict):
+                label_strs.append(f"{rl.get('caller', '?')} → {rl.get('label', '?')}")
+            else:
+                label_strs.append(str(rl))
+        lines.append(f"- **人称标签**: {', '.join(label_strs)}")
+
     if char.appearance:
         lines.extend(["", "## 外貌", char.appearance])
 
@@ -273,7 +295,9 @@ def _generate_character_card(char, novel_world: NovelWorld) -> str:
         lines.extend(["", "## 性格", char.personality])
 
     if related:
-        lines.extend(["", "## 关系", *[f"- {r}" for r in sorted(related)]])
+        lines.extend(["", "## 关系"])
+        for r in sorted(related):
+            lines.append(f"- {r}")
 
     # Find dialogues by this character
     char_dialogues = [

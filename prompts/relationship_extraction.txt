@@ -6,19 +6,44 @@
 ## 提取要求
 请分析文本中的角色互动，提取所有关系，输出 JSON 格式：
 
-1. **character_a**: 角色A的名称
-2. **character_b**: 角色B的名称
+1. **character_a**: 角色A的名称（使用已知角色列表中的 canonical_name）
+2. **character_b**: 角色B的名称（使用已知角色列表中的 canonical_name）
 3. **rel_type**: 关系类型（spouse/parent/child/sibling/relative/friend/rival/lover/colleague/classmate/neighbor/other）
 4. **direction**: 关系方向（a_to_b/b_to_a/bidirectional）
 5. **intimacy_level**: 亲密程度（close/intimate/distant/hostile/neutral）
-6. **evidence**: 支持此关系的文本片段（1-2句原文）
-7. **confidence**: 置信度（0.0-1.0）
+6. **a_calls_b**: 角色A在文本中对角色B的称呼（如"妈妈"、"老师"、"小儒"），如果是本名则填 null。如果文本中看不到则留空数组 []
+7. **b_calls_a**: 角色B在文本中对角色A的称呼，同上规则
+8. **evidence**: 支持此关系的文本片段（1-2句原文）
+9. **confidence**: 置信度（0.0-1.0）
+
+## a_calls_b 与 b_calls_a 填写说明（必须理解）
+
+这两个字段表示**对话中一方对另一方的直接称呼**，方向非常关键：
+
+- **a_calls_b** = **角色A** 称呼 **角色B** 的方式
+- **b_calls_a** = **角色B** 称呼 **角色A** 的方式
+
+示例：假设文本中有以下对话 ——
+
+> 林鸿儒说："妈咪，我爱你！"
+> 张淑惠说："小儒，过来吃饭。你是妈妈的好儿子。"
+
+提取这条关系时：
+- character_a = "林鸿儒"
+- character_b = "张淑惠"
+- **a_calls_b = ["妈咪", "妈"]**
+  → A(林鸿儒)叫B(张淑惠)"妈咪"，B说的话里自称"妈妈"（A视角下B是"妈"）
+- **b_calls_a = ["小儒", "儿子"]**
+  → B(张淑惠)叫A(林鸿儒)"小儒"、"儿子"
+
+常见错误：把 B 称呼 A 的词填进 a_calls_b，或反之。**检查方法：a_calls_b 的每一个词，都应该能代入"A对B说：___"这个句式。**
 
 ## 注意事项
+- a_calls_b 和 b_calls_a 必须认真填写，这是消歧的关键数据
+- 如果文本中没有显示任何一方对另一方的称呼，留空数组 []
+- 同一个称呼多次出现只需记录一次
 - 家庭关系（父母、子女、兄弟姐妹、配偶）要明确标注
 - 注意区分角色之间的实际关系和表面称呼
-- 多人之间的复杂关系要分别列出
-- 关注角色对话和互动中透露的关系信息
 
 ## 输出格式
 请只输出以下 JSON 格式，不要有其他内容：
@@ -26,13 +51,15 @@
 {{
   "relationships": [
     {{
-      "character_a": "...",
-      "character_b": "...",
-      "rel_type": "...",
-      "direction": "bidirectional",
-      "intimacy_level": "...",
-      "evidence": ["..."],
-      "confidence": 0.8
+      "character_a": "林鸿儒",
+      "character_b": "张淑惠",
+      "rel_type": "parent",
+      "direction": "b_to_a",
+      "intimacy_level": "intimate",
+      "a_calls_b": ["妈咪", "妈"],
+      "b_calls_a": ["小儒", "儿子"],
+      "evidence": ["小儒，你是我们林家的唯一血脉", "妈咪，我爱你"],
+      "confidence": 0.95
     }}
   ]
 }}

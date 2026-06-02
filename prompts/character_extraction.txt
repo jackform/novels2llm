@@ -7,18 +7,37 @@
 请仔细阅读文本，提取每个出现的角色，输出 JSON 格式。对于每个角色，提取：
 
 1. **canonical_name**: 角色的正式名称（最通用的称呼）
-2. **aliases**: 所有别名、昵称、称呼方式（如"小明"、"妈妈"、"老师"等）
-3. **gender**: 性别（male/female/unknown）
-4. **age_range**: 年龄范围（如"14-16"、"middle-aged"、"unknown"）
-5. **appearance**: 外貌描述（整合所有片段中的外貌信息）
-6. **personality**: 性格特点
-7. **role**: 在故事中的角色（protagonist/narrator/family_member/love_interest/supporting/antagonist）
+2. **aliases**: 身份别名——这个角色**自己的**名字变体或昵称，不是别人对他的称呼。
+   - ✅ 属于 aliases: 小儒、鸿儒、儒（都是林鸿儒自己名字的变体）
+   - ✅ 属于 aliases: 淑惠、惠（张淑惠名字的变体）
+   - ❌ 不属于 aliases: 哥哥、妈妈、老师、妈咪（这些是关系称呼，放在下方的 relational_labels）
+3. **relational_labels**: **谁**称呼这个角色为**什么**。每条记录包含 caller 和 label。
+   - `caller`: 说话人的名字（如果说话人不明确，填 "unknown"）
+   - `label`: 说话人对这个角色的称呼
+   - 例（母亲角色）: [
+      {{"caller": "马小伟", "label": "妈妈"}},
+      {{"caller": "马大伟", "label": "老婆"}},
+      {{"caller": "陌生男人", "label": "小姐"}}
+     ]
+   - 例（哥哥角色）: [
+      {{"caller": "林芯茵", "label": "哥哥"}},
+      {{"caller": "林妈妈", "label": "儿子"}},
+      {{"caller": "林芯祺", "label": "大鸡巴哥哥"}}
+     ]
+4. **gender**: 性别（male/female/unknown）
+5. **age_range**: 年龄范围（如"14-16"、"middle-aged"、"unknown"）
+6. **appearance**: 外貌描述（整合所有片段中的外貌信息）
+7. **personality**: 性格特点
+8. **role**: 在故事中的角色（protagonist/narrator/family_member/love_interest/supporting/antagonist/background）
+9. **family_role**: 如果已知具体家庭身份（如"林鸿儒的母亲"、"林芯茵的姐姐"）
 
-## 注意事项
-- 同一角色可能有多个称呼方式（如"妈妈"="母亲"="她"），请尽量合并
-- 如果文本中提到某角色但信息不完整，也请提取，将未知字段设为 null
-- 注意区分叙述者视角和角色视角
-- 对于家庭关系中的称呼（爸爸、妈妈、哥哥、姐姐等），请指出 family_role
+## 关键规则
+- aliases 和 relational_labels 必须严格分开:
+  - aliases = 这个人自己叫什么、被怎样简称（与视角无关，用字符串列表）
+  - relational_labels = 某个具体的人怎么称呼他（与视角有关，用 caller+label 对象列表）
+- 例如"陈雪芬": aliases=["雪芬", "芬"], relational_labels=[{{"caller": "学生A", "label": "老师"}}, {{"caller": "侯先生", "label": "太太"}}, {{"caller": "侯先生", "label": "宝贝"}}]
+- **即使不知道 caller 是谁，也要尽量标注**: 填 "unknown" 或在上下文中推断
+- 两个不同的妹妹都会被叫"妹妹"，但 caller 不同，caller+label 的配对可以用来判断是否同一人
 
 ## 输出格式
 请只输出以下 JSON 格式，不要有其他内容：
@@ -28,6 +47,10 @@
     {{
       "canonical_name": "...",
       "aliases": ["..."],
+      "relational_labels": [
+        {{"caller": "...", "label": "..."}},
+        {{"caller": "...", "label": "..."}}
+      ],
       "gender": "male",
       "age_range": "...",
       "appearance": "...",

@@ -228,19 +228,34 @@ def map_name(name: str) -> str:
     return name_map.get(name, name)
 
 mapped_rels = []
-seen_keys = set()
+seen_keys = {}
 for r in all_relationships:
     a = map_name(r.get('character_a', ''))
     b = map_name(r.get('character_b', ''))
     if not a or not b or a == b:
         continue
-    key = (a, b, r.get('rel_type', ''))
+    norm_a, norm_b = sorted([a, b])
+    key = (norm_a, norm_b, r.get('rel_type', ''))
     if key in seen_keys:
+        # Merge calling names from reversed duplicate
+        prev = seen_keys[key]
+        if a == prev['character_a'] and b == prev['character_b']:
+            for name in r.get('a_calls_b', []):
+                if name not in prev.get('a_calls_b', []): prev.setdefault('a_calls_b', []).append(name)
+            for name in r.get('b_calls_a', []):
+                if name not in prev.get('b_calls_a', []): prev.setdefault('b_calls_a', []).append(name)
+        else:
+            for name in r.get('a_calls_b', []):
+                if name not in prev.get('b_calls_a', []): prev.setdefault('b_calls_a', []).append(name)
+            for name in r.get('b_calls_a', []):
+                if name not in prev.get('a_calls_b', []): prev.setdefault('a_calls_b', []).append(name)
+        if r.get('confidence', 0) > prev.get('confidence', 0):
+            prev['confidence'] = r['confidence']
         continue
-    seen_keys.add(key)
     r_copy = dict(r)
     r_copy['character_a'] = a
     r_copy['character_b'] = b
+    seen_keys[key] = r_copy
     mapped_rels.append(r_copy)
 
 print(f"\nRelationships: {len(all_relationships)} raw → {len(mapped_rels)} mapped/deduped")
