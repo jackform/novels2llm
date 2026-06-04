@@ -31,8 +31,6 @@ def _name_similarity(a: str, b: str) -> float:
     """Compute string similarity between two names."""
     if a == b:
         return 1.0
-    if a in b or b in a:
-        return 0.9
     return SequenceMatcher(None, a, b).ratio()
 
 

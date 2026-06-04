@@ -42,3 +42,6 @@ class TimelineEvent(BaseModel):
     causal_before: list[str] = Field(default_factory=list, description="Event IDs that must precede this one")
     causal_after: list[str] = Field(default_factory=list, description="Event IDs that must follow this one")
     time_marker: Optional[str] = Field(default=None, description="Explicit time reference if available")
+    text_start: Optional[int] = Field(default=None, description="Character start position in source text")
+    text_end: Optional[int] = Field(default=None, description="Character end position in source text")
+    location: Optional[str] = Field(default=None, description="Location where this event/scene takes place")

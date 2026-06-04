@@ -7,6 +7,17 @@ from .entities import Character, Location, Item, StoryEvent, WorldSetting
 from .relationships import Dialogue, Relationship, TimelineEvent
 
 
+class SceneEvent(BaseModel):
+    """An event with its associated dialogues linked by text position."""
+
+    event_id: str = Field(description="Unique event identifier")
+    description: str = Field(description="Event description")
+    chapter: int = Field(description="Chapter number")
+    location: Optional[str] = Field(default=None, description="Location where this event/scene takes place")
+    participants: list[str] = Field(default_factory=list)
+    dialogues: list[Dialogue] = Field(default_factory=list, description="Dialogues occurring within this event's text span")
+
+
 class NovelMetadata(BaseModel):
     """Metadata for a novel."""
 
@@ -31,6 +42,7 @@ class NovelWorld(BaseModel):
     locations: list[Location] = Field(default_factory=list)
     items: list[Item] = Field(default_factory=list)
     events: list[StoryEvent] = Field(default_factory=list)
+    scene_events: list[SceneEvent] = Field(default_factory=list, description="Events with linked dialogues")
 
     def model_dump_json_pretty(self, **kwargs):
         """Serialize to pretty JSON string."""

@@ -94,12 +94,18 @@ class BaseExtractor:
         # 3. Remove trailing commas before ] or }
         s = re.sub(r',\s*([}\]])', r'\1', s)
 
-        # 4. Fix missing closing brackets: count braces
+        # 4. Fix missing commas between JSON elements at newline boundaries:
+        #    "val"\n"key" -> "val",\n"key",  }\n"key" -> },\n"key"
+        s = re.sub(r'(["}\]\d])\s*\n\s*(["\[{])', r'\1,\n\2', s)
+        # Same-line: "val" "key" -> "val", "key" (two unescaped quotes with space)
+        s = re.sub(r'(?<!\\)"\s+(?=")', r'", ', s)
+
+        # 5. Fix missing closing brackets: count braces
         open_braces = s.count('{') - s.count('}')
         open_brackets = s.count('[') - s.count(']')
         s += '}' * open_braces + ']' * open_brackets
 
-        # 5. Fix single-quoted JSON (LLMs sometimes use single quotes)
+        # 6. Fix single-quoted JSON (LLMs sometimes use single quotes)
         if s.count('"') < 4 and s.count("'") > 4:
             # JSON should use double quotes; try replacing top-level single quotes
             pass  # Too risky for general case; skip
