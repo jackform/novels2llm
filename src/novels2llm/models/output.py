@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from .entities import Character, Location, Item, StoryEvent, WorldSetting
 from .relationships import Dialogue, Relationship, TimelineEvent
+from .scene import Scene
 
 
 class SceneEvent(BaseModel):
@@ -43,6 +44,7 @@ class NovelWorld(BaseModel):
     items: list[Item] = Field(default_factory=list)
     events: list[StoryEvent] = Field(default_factory=list)
     scene_events: list[SceneEvent] = Field(default_factory=list, description="Events with linked dialogues")
+    scenes: list[Scene] = Field(default_factory=list, description="Location-anchored scenes with narrative units")
 
     def model_dump_json_pretty(self, **kwargs):
         """Serialize to pretty JSON string."""

@@ -118,6 +118,31 @@ def export_to_sqlite(novel_world: NovelWorld, db_path: Optional[Path] = None) ->
             description TEXT,
             owner TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS scenes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            novel_id TEXT REFERENCES novels(novel_id),
+            scene_id TEXT NOT NULL,
+            chapter INTEGER,
+            location TEXT,
+            sub_location_of TEXT,
+            participants TEXT,  -- JSON array
+            summary TEXT,
+            time_marker TEXT,
+            chunk_index INTEGER
+        );
+
+        CREATE TABLE IF NOT EXISTS narrative_units (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            novel_id TEXT REFERENCES novels(novel_id),
+            scene_id TEXT NOT NULL,
+            unit_id TEXT NOT NULL,
+            character TEXT,
+            text TEXT NOT NULL,
+            type TEXT DEFAULT 'narration',
+            listener TEXT,
+            sequence_index INTEGER
+        );
     """)
 
     novel_id = novel_world.metadata.novel_id
@@ -227,6 +252,42 @@ def export_to_sqlite(novel_world: NovelWorld, db_path: Optional[Path] = None) ->
             VALUES (?, ?, ?, ?, ?)
         """, (novel_id, item.name, item.type, item.description, item.owner))
 
+    # Insert scenes
+    for scene in novel_world.scenes:
+        cursor.execute("""
+            INSERT INTO scenes (novel_id, scene_id, chapter, location,
+                sub_location_of, participants, summary, time_marker, chunk_index)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            novel_id,
+            scene.scene_id,
+            scene.chapter,
+            scene.location,
+            scene.sub_location_of,
+            json.dumps(scene.participants, ensure_ascii=False),
+            scene.summary,
+            scene.time_marker,
+            scene.chunk_index,
+        ))
+
+    # Insert narrative units
+    for scene in novel_world.scenes:
+        for unit in scene.narrative_units:
+            cursor.execute("""
+                INSERT INTO narrative_units (novel_id, scene_id, unit_id,
+                    character, text, type, listener, sequence_index)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                novel_id,
+                scene.scene_id,
+                unit.unit_id,
+                unit.character,
+                unit.text,
+                unit.type,
+                unit.listener,
+                unit.sequence_index,
+            ))
+
     conn.commit()
     conn.close()
 
@@ -299,15 +360,25 @@ def _generate_character_card(char, novel_world: NovelWorld) -> str:
         for r in sorted(related):
             lines.append(f"- {r}")
 
-    # Find dialogues by this character
-    char_dialogues = [
-        d for d in novel_world.dialogues
-        if d.speaker == char.canonical_name
-    ]
-    if char_dialogues:
-        lines.extend(["", "## 对话（部分）", ""])
-        for d in char_dialogues[:5]:
-            lines.append(f"> {d.content}")
+    # Find narrative units by this character (scene-organized)
+    char_units = []
+    for scene in novel_world.scenes:
+        for unit in scene.narrative_units:
+            if unit.character == char.canonical_name and unit.type in ('dialogue', 'inner_thought'):
+                char_units.append((scene, unit))
+
+    if char_units:
+        lines.extend(["", "## 场景对话摘录", ""])
+        shown = set()
+        for scene, unit in char_units[:10]:
+            scene_key = f"{scene.scene_id}: {scene.location}"
+            if scene_key not in shown:
+                lines.append(f"### {scene_key}")
+                if scene.summary:
+                    lines.append(f"*{scene.summary}*")
+                lines.append("")
+                shown.add(scene_key)
+            lines.append(f"> {unit.text}")
             lines.append("")
 
     return '\n'.join(lines)

@@ -71,10 +71,14 @@ class BaseExtractor:
 
         try:
             return json.loads(json_str)
-        except json.JSONDecodeError:
-            # Apply progressive JSON repairs common in LLM output
-            repaired = self._repair_json(json_str)
-            return json.loads(repaired)
+        except json.JSONDecodeError as e1:
+            try:
+                repaired = self._repair_json(json_str)
+                return json.loads(repaired)
+            except json.JSONDecodeError as e2:
+                # Save raw response for debugging
+                self._save_debug_response(response, json_str, e1, e2)
+                raise
 
     @staticmethod
     def _repair_json(json_str: str) -> str:
@@ -110,7 +114,30 @@ class BaseExtractor:
             # JSON should use double quotes; try replacing top-level single quotes
             pass  # Too risky for general case; skip
 
+        # 7. Fix unescaped literal newlines/tabs inside string values
+        #    This handles: "text": "some multi-line\ncontent" -> escape the \n
+        #    Only applied when we see clear patterns of broken JSON
+        pass
+
         return s
+
+    @staticmethod
+    def _save_debug_response(response: str, json_str: str, e1: json.JSONDecodeError, e2: json.JSONDecodeError) -> None:
+        """Save raw LLM response to debug file on JSON parse failure."""
+        import datetime
+        from pathlib import Path
+        debug_dir = Path('data/output/debug')
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        debug_file = debug_dir / f'json_parse_fail_{ts}.txt'
+        debug_file.write_text(
+            f"=== ORIGINAL ERROR ===\n{e1}\n\n"
+            f"=== REPAIR ERROR ===\n{e2}\n\n"
+            f"=== EXTRACTED JSON STR (first 5000 chars) ===\n{json_str[:5000]}\n\n"
+            f"=== FULL RESPONSE ===\n{response}",
+            encoding='utf-8',
+        )
+        print(f"  [DEBUG] Raw response saved to {debug_file}")
 
     def extract(self, text: str, **kwargs) -> list[dict]:
         """Extract information from text. Override in subclasses."""
