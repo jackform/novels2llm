@@ -21,8 +21,8 @@ from src.novels2llm.pipeline.stage7_export import export_to_json, export_to_sqli
 from src.novels2llm.config import config
 
 API_KEY = config.ANTHROPIC_API_KEY
-N_CHUNKS = 3
-NOVEL_FILE = Path('data/jia_ting_luan_lun/ai-mu-ru-ping.md')
+N_CHUNKS = 4
+NOVEL_FILE = Path('data/jia_ting_luan_lun/qing-chun-yun-shi.md')
 OUTPUT_DIR = Path('data/output')
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -44,6 +44,8 @@ def _normalize_rlabels(labels: list) -> list[dict]:
 
 # ─── Stage 1 + 2 ────────────────────────────────────────────────
 print("Stage 1+2: Preprocess, Chunk, NLP...")
+config.TARGET_CHUNK_SIZE_CHARS = 3000
+config.MAX_CHUNK_SIZE_CHARS = 4000
 result = preprocess_novel(NOVEL_FILE)
 all_chunks = chunk_novel(
     result.raw_text, result.metadata.novel_id,

@@ -21,7 +21,13 @@ uv run python -m src.novels2llm.cli run <novel_name_stem>
 # Run preprocess only (no API calls)
 uv run python -m src.novels2llm.cli preprocess <novel_name_stem>
 
-# Quick extraction test on first 3 chunks
+# Run Stages 1-3 (preprocess + NLP + LLM extraction)
+uv run python -m src.novels2llm.cli extract <novel_name_stem>
+
+# Export all novels to SQLite + JSON
+uv run python -m src.novels2llm.cli export
+
+# Full extraction test with all 5 extractors + event-dialogue linking (3 chunks)
 uv run python tests/save_extraction_results.py
 
 # Git operations — NEVER skip hooks or use destructive commands without asking
@@ -31,43 +37,70 @@ git push
 
 ## Architecture
 
-### Pipeline Design (7 Stages)
+### Pipeline Design
 
-Novel data flows through stages 1→2→3→4→5→6→7. Stages 1/2/4/5/6/7 are local Python. Stage 3 calls an external LLM API (Anthropic protocol, DeepSeek by default).
+The main pipeline (`cli.py cmd_run`) executes: preprocess → chunk → LLM extraction (3 extractors) → alias resolution → export.
 
 ```
-.md file → [1] preprocess → [2] NLP → [3] LLM extract → [4] coref → [5] graph → [6] timeline → [7] export JSON/SQLite/MD
+.md file → [1] preprocess → [2] chunk → [3] LLM extract → [4] coref → [5] export JSON/SQLite/MD
 ```
 
-### Stage 3: Five Extractors Run Per Chunk
+The NLP stage (`stage2_nlp.py`) exists but is **not called** by the main pipeline. It is used by `save_extraction_results.py` for jieba segmentation, HanLP NER, and regex-based dialogue detection.
 
-Not a single pass — 5 independent LLM calls per chunk, each with a dedicated prompt template in `prompts/`:
+### Two Pipeline Paths
 
-| Extractor | Class | Prompt |
-|-----------|-------|--------|
-| Character | `CharacterExtractor` | `character_extraction.txt` |
-| World | `WorldExtractor` | `world_setting.txt` |
-| Dialogue | `DialogueExtractor` | `dialogue_extraction.txt` |
-| Relationship | `RelationshipExtractor` | `relationship_extraction.txt` |
-| Event | `EventExtractor` | `timeline_extraction.txt` |
+There are two parallel implementations:
 
-World extraction only runs on the first 2 chapters (world-building info is front-loaded).
+| Aspect | `cli.py cmd_run` | `save_extraction_results.py` |
+|--------|------------------|------------------------------|
+| Extractors used | 3 (char, world, dialogue) | 5 (all + event-dialogue linking) |
+| NLP stage | No | Yes (jieba + HanLP + regex dialogue) |
+| Event extraction | No | Yes (location-based scenes) |
+| Event-dialogue linking | No | Yes (via `SceneEvent` model) |
+| Cross-chunk event dedup | No | Yes (LLM judgment) |
+| LLM dialogue attribution | Direct via `DialogueExtractor` | Two-phase: NLP find quotes → LLM attribute speaker/listener |
+| Caching | Yes (`CACHE_DIR`) | No (calls extractors directly) |
 
-### Dialogue Strategy Change
+`save_extraction_results.py` is the more feature-complete path and represents the intended full pipeline. It was enhanced in `deddb2f` with location-based scene extraction, LLM dialogue validation, and event-dialogue linking.
 
-The Dialogue Extractor does NOT send full text to the LLM (DeepSeek rejects explicit content). Instead:
-1. NLP regex finds `""` quote spans in text
-2. LLM receives batches of 10 quotes + surrounding context, only to attribute `speaker`/`listener`
-3. Beyond 30 quotes per chunk, fallback to rule-based speaker inference
+### Stage 3: Three Extractors in Main Pipeline
+
+The main pipeline's `Stage3Pipeline.process_chunk()` runs 3 extractors per chunk:
+
+| Extractor | Class | Prompt | Scope |
+|-----------|-------|--------|-------|
+| Character | `CharacterExtractor` | `character_extraction.txt` | Every chunk |
+| World | `WorldExtractor` | `world_setting.txt` | Only chapters ≤2 at chapter-start chunks |
+| Dialogue | `DialogueExtractor` | `dialogue_extraction.txt` | Every chunk |
+
+Two additional extractors (`RelationshipExtractor`, `EventExtractor`) are instantiated but **not called** by `process_chunk()`. They are used in `save_extraction_results.py`.
+
+### `save_extraction_results.py` — Full 5-Extractor + Linking Pipeline
+
+This script runs all 5 extractors and adds post-processing:
+
+| Step | Description |
+|------|-------------|
+| 1. NLP | jieba POS + `""` regex dialogue detection |
+| 2. Character extraction | Per chunk via `CharacterExtractor` |
+| 3. World extraction | First chunk only via `WorldExtractor` |
+| 4. Relationship extraction | `RelationshipExtractor` with caller-perspective labels |
+| 5. Event extraction | Location-based scene extraction with `text_start`/`text_end` |
+| 6. Dialogue attribution | Batch NLP quotes (≤8/batch) → LLM validates, filters inner thoughts, attributes speaker/listener |
+| 7. Event-dialogue linking | Map dialogues to events by text position → `SceneEvent` objects |
+| 8. Cross-chunk event dedup | LLM judgment for events spanning chunk boundaries |
+| 9. Coref resolution | `resolve_aliases()` with alias overlap + edit distance + caller-label matching |
 
 ### Coreference Resolution
 
-`alias_resolver.py` merges character entries across chunks in three phases:
+`alias_resolver.py` merges character entries across chunks:
+
 1. **Exact match** on `canonical_name`
 2. **Alias overlap** — if two groups share >50% aliases
 3. **Edit distance** — >85% similarity on canonical names
+4. **Caller-label overlap** — if two characters are called by the same label from the same caller, they are likely the same person (threshold 0.3)
 
-Output is a `name_map` (dict[str,str]) mapping every raw name to its canonical form. This map is then applied to relationship and dialogue names.
+Output is a `name_map` (dict[str,str]) mapping every raw name to its canonical form.
 
 ### Prompt Template Escaping
 
@@ -75,11 +108,21 @@ Prompt files use Python `str.format()`. JSON examples in prompts MUST use `{{` a
 
 ### Model Compatibility (DeepSeek)
 
-`base.py:_call_claude()` handles `ThinkingBlock` (DeepSeek returns reasoning blocks). The code iterates `message.content` looking for `TextBlock` instances rather than assuming `.text` on the first content block.
+`base.py:_call_claude()` handles `ThinkingBlock` (DeepSeek returns reasoning blocks). The code iterates `message.content` looking for `TextBlock` instances rather than assuming `.text` on the first content block. It also includes JSON repair for malformed LLM output (missing commas between fields).
 
 ### Data Models
 
-All output models in `models/` are Pydantic v2. The aggregate `NovelWorld` is the single output object per novel, containing lists of `Character`, `Relationship`, `Dialogue`, `TimelineEvent`, `Location`, `Item`, and a `WorldSetting`. `NovelMetadata` carries the YAML frontmatter fields.
+All output models in `models/` are Pydantic v2. The aggregate `NovelWorld` is the single output object per novel, containing:
+
+- `metadata: NovelMetadata` — YAML frontmatter fields
+- `characters: list[Character]`, `relationships: list[Relationship]`
+- `dialogues: list[Dialogue]`, `timeline: list[TimelineEvent]`
+- `locations: list[Location]`, `items: list[Item]`
+- `world_setting: Optional[WorldSetting]`
+- `events: list[StoryEvent]` — raw extracted events
+- `scene_events: list[SceneEvent]` — events linked to their dialogues by text position
+
+`SceneEvent` bridges events and dialogues: it has `event_id`, `description`, `chapter`, `location`, `participants`, and `dialogues: list[Dialogue]`.
 
 ### Chunking Logic
 
@@ -90,7 +133,7 @@ All output models in `models/` are Pydantic v2. The aggregate `NovelWorld` is th
 
 ### Key Config Values (`config.py`)
 
-- `ANTHROPIC_BASE_URL`: Default is Anthropic, set to `https://api.deepseek.com/anthropic` for DeepSeek
+- `ANTHROPIC_BASE_URL`: Default `https://api.anthropic.com`, set to `https://api.deepseek.com/anthropic` for DeepSeek
 - `ANTHROPIC_MODEL`: `deepseek-v4-pro` or `claude-sonnet-4-6`
 - `TARGET_CHUNK_SIZE_CHARS=6000`, `MAX_CHUNK_SIZE_CHARS=8000`, `CHUNK_OVERLAP_CHARS=200`
 - `NOVEL_LIMIT`: Set to `N` to process only N novels for testing
@@ -98,11 +141,12 @@ All output models in `models/` are Pydantic v2. The aggregate `NovelWorld` is th
 
 ## Known Gaps
 
-1. **No line_index on dialogues** — dialogues can't be aligned to precise text positions
-2. **Event IDs duplicate across chunks** — each chunk generates `ch1_evt1`, no global dedup
-3. **Dialogues ↔ Events not linked** — only shared field is `chapter`
-4. **No relationship-type validation** — e.g., mother-son being labeled `sibling` passes through
-5. **Cache bypassed in test scripts** — `save_extraction_results.py` calls `extract()` directly
+1. **No line_index on dialogues in main pipeline** — dialogues can't be aligned to precise text positions. `save_extraction_results.py` has text positions via NLP regex but they don't flow into the final `Dialogue` model.
+2. **Event IDs duplicate across chunks in main pipeline** — each chunk generates independent IDs. `save_extraction_results.py` addresses this with cross-chunk dedup.
+3. **Event-dialogue linking only in test script** — `SceneEvent` and the linking logic exist only in `save_extraction_results.py`, not in the main `Stage3Pipeline`.
+4. **No relationship-type validation** — e.g., mother-son being labeled `sibling` passes through.
+5. **Main pipeline missing 2 extractors** — `process_chunk()` instantiates but does not call `RelationshipExtractor` or `EventExtractor`. These only run in `save_extraction_results.py`.
+6. **Cache bypassed in test scripts** — `save_extraction_results.py` calls extractors directly, skipping `Stage3Pipeline` caching.
 
 ## Output Files (.gitignored)
 
@@ -110,4 +154,5 @@ All output models in `models/` are Pydantic v2. The aggregate `NovelWorld` is th
 - `data/output/*.json` — per-novel NovelWorld export
 - `data/output/novels.db` — SQLite with 7 tables (novels, characters, relationships, dialogues, timeline, locations, items)
 - `data/output/character_cards/` — one .md file per character
-- `data/output/raw/` — intermediate extraction data for debugging
+- `data/output/cache/` — per-chunk extraction cache (used by `Stage3Pipeline`)
+- `data/output/raw/` — intermediate extraction data for debugging (used by `save_extraction_results.py`)
