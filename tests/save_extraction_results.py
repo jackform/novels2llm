@@ -22,9 +22,6 @@ from src.novels2llm.config import config
 
 API_KEY = config.ANTHROPIC_API_KEY
 N_CHUNKS = 3
-# Use smaller chunks so scene extraction output fits in token limit
-config.TARGET_CHUNK_SIZE_CHARS = 3000
-config.MAX_CHUNK_SIZE_CHARS = 4000
 NOVEL_FILE = Path('data/jia_ting_luan_lun/ai-mu-ru-ping.md')
 OUTPUT_DIR = Path('data/output')
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -48,7 +45,12 @@ def _normalize_rlabels(labels: list) -> list[dict]:
 # ─── Stage 1 + 2 ────────────────────────────────────────────────
 print("Stage 1+2: Preprocess, Chunk, NLP...")
 result = preprocess_novel(NOVEL_FILE)
-all_chunks = chunk_novel(result.raw_text, result.metadata.novel_id)
+all_chunks = chunk_novel(
+    result.raw_text, result.metadata.novel_id,
+    target_size=config.TARGET_CHUNK_SIZE_CHARS,
+    max_size=config.MAX_CHUNK_SIZE_CHARS,
+    overlap=config.CHUNK_OVERLAP_CHARS,
+)
 test_chunks = all_chunks[:N_CHUNKS]
 
 nlp_map = {}
@@ -177,7 +179,25 @@ for ci, c in enumerate(test_chunks):
             import traceback; traceback.print_exc()
 
 # ─── Stage 4.1: Cross-Chunk Scene Merging ────────────────────────
-print(f"\nStage 4.1: Merging scenes across chunk boundaries...")
+print(f"\nStage 4.1: Renumbering scene IDs globally...")
+
+# Renumber scene IDs to be globally unique (LLM restarts from sc1 per chunk)
+scene_id_counter = 1
+for s in all_scenes:
+    ch = s.get('chapter', 0)
+    old_id = s.get('scene_id', '')
+    new_id = f"ch{ch}_sc{scene_id_counter}"
+    s['scene_id'] = new_id
+    # Also update unit_ids to match
+    for u in s.get('narrative_units', []):
+        old_unit_id = u.get('unit_id', '')
+        # Replace old scene prefix with new one
+        u['unit_id'] = old_unit_id.replace(old_id, new_id, 1)
+    scene_id_counter += 1
+
+print(f"  Renumbered {len(all_scenes)} scenes (globally unique IDs)")
+
+print(f"\nStage 4.2: Merging scenes across chunk boundaries...")
 print(f"  Total scenes before merge: {len(all_scenes)}")
 
 # Group scenes by chunk_index

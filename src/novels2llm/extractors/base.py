@@ -43,6 +43,7 @@ class BaseExtractor:
             model=config.ANTHROPIC_MODEL,
             max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
+            timeout=1200.0,  # 20 min for long scene extractions
         )
         # DeepSeek and some models may return ThinkingBlock content;
         # extract only the TextBlock (actual response)
@@ -88,10 +89,10 @@ class BaseExtractor:
         # 1. Remove BOM and invisible characters
         s = s.replace('\ufeff', '').replace('\u200b', '')
 
-        # 2. Replace Chinese/smart quotes with straight quotes inside strings
-        #    Only outside of already-escaped contexts
-        s = s.replace('\u201c', '"').replace('\u201d', '"')  # " "
-        s = s.replace('\u2018', "'").replace('\u2019', "'")  # ' '
+        # 2. Replace Chinese full-width punctuation that breaks JSON syntax
+        #    NOTE: Do NOT replace Chinese quotes \u201c\u201d\u2018\u2019 —
+        #    they are valid UTF-8 inside JSON strings. Replacing them with
+        #    ASCII quotes breaks text content that contains "" or ''.
         s = s.replace('\uff08', '(').replace('\uff09', ')')  # （ ）
         s = s.replace('\uff1a', ':').replace('\uff0c', ',')  # ： ，
 
@@ -104,10 +105,17 @@ class BaseExtractor:
         # Same-line: "val" "key" -> "val", "key" (two unescaped quotes with space)
         s = re.sub(r'(?<!\\)"\s+(?=")', r'", ', s)
 
-        # 5. Fix missing closing brackets: count braces
-        open_braces = s.count('{') - s.count('}')
-        open_brackets = s.count('[') - s.count(']')
-        s += '}' * open_braces + ']' * open_brackets
+        # 5. Fix missing closing brackets: close in correct LIFO order
+        #    (e.g. {[{ -> }]}, not }}{])
+        stack = []
+        for ch in s:
+            if ch in '{[': stack.append(ch)
+            elif ch == '}':
+                if stack and stack[-1] == '{': stack.pop()
+            elif ch == ']':
+                if stack and stack[-1] == '[': stack.pop()
+        close_map = {'{': '}', '[': ']'}
+        s += ''.join(close_map[c] for c in reversed(stack))
 
         # 6. Fix single-quoted JSON (LLMs sometimes use single quotes)
         if s.count('"') < 4 and s.count("'") > 4:
