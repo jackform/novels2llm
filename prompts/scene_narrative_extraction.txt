@@ -25,7 +25,7 @@
 
 对每个场景，按时间顺序提取叙事单元。每个单元包含：
 
-1. **unit_id**: 格式 ch{{章节}}_sc{{场景序号}}_u{{单元序号}}（如 ch3_sc1_u5）
+1. **scene_id 和 unit_id 格式**: 必须使用当前章节号 {chapter}，格式 ch{chapter}_sc{{场景序号}}（如 ch{chapter}_sc1），unit_id 同理
 2. **character**: 执行角色名或 "narrator"（旁白）
 3. **text**: 叙事文本，格式规则如下：
    - **对话**: "（动作描述）对白内容" —— 先写角色动作/表情/神态（用中文全角括号括起），然后紧跟对白
@@ -43,6 +43,7 @@
   "scenes": [
     {{
       "scene_id": "ch3_sc1",
+      "chapter": 3,
       "location": "家中客厅",
       "sub_location_of": "家",
       "participants": ["茹萍", "马小伟"],

@@ -162,6 +162,9 @@ for ci, c in enumerate(test_chunks):
                 previous_scene_summary=prev_scene_summary,
                 chunk_index=c.chunk_index,
             )
+            # Override chapter from chunk metadata (don't trust LLM-generated chapter)
+            for s in scenes:
+                s['chapter'] = c.chapter
             all_scenes.extend(scenes)
             # Keep last scene summary for cross-chunk continuity
             if scenes:
