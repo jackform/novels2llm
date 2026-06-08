@@ -21,8 +21,8 @@ from src.novels2llm.pipeline.stage7_export import export_to_json, export_to_sqli
 from src.novels2llm.config import config
 
 API_KEY = config.ANTHROPIC_API_KEY
-N_CHUNKS = 4
-NOVEL_FILE = Path('data/jia_ting_luan_lun/qing-chun-yun-shi.md')
+N_CHUNKS = 6
+NOVEL_FILE = Path('data/jia_ting_luan_lun/shao-nian-de-fan-nao.md')
 OUTPUT_DIR = Path('data/output')
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -121,14 +121,13 @@ for ci, c in enumerate(test_chunks):
     except Exception as e:
         print(f"  Char: ERROR - {e}")
 
-    # World (chunk 0 only)
-    if ci == 0:
-        try:
-            ws = world_ext.extract(c.text, nlp_hints=hint)
-            world_settings.append(ws)
-            print(f"  World: ok")
-        except Exception as e:
-            print(f"  World: ERROR - {e}")
+    # World (all chunks, locations/items accumulate)
+    try:
+        ws = world_ext.extract(c.text, nlp_hints=hint)
+        world_settings.append(ws)
+        print(f"  World: {len(ws.get('locations',[]))} locs, {len(ws.get('items',[]))} items")
+    except Exception as e:
+        print(f"  World: ERROR - {e}")
 
     # Relationship
     for attempt in range(2):
@@ -142,11 +141,48 @@ for ci, c in enumerate(test_chunks):
             if attempt == 0: continue
             print(f"  Rel: ERROR - {e}")
 
-# Prepare known locations from world settings
-known_locations = []
+# Merge world settings: dedup locations/items by name, keep first non-empty for global fields
+merged_world = {}
 if world_settings:
-    known_locations = world_settings[0].get('locations', [])
-    print(f"\nKnown locations from world: {len(known_locations)}")
+    # Global fields: take first non-empty value
+    for key in ('era', 'genre', 'setting_summary'):
+        for ws in world_settings:
+            if ws.get(key):
+                merged_world[key] = ws[key]
+                break
+
+    # Locations: dedup by name
+    seen_loc_names = set()
+    merged_locations = []
+    for ws in world_settings:
+        for loc in ws.get('locations', []):
+            name = loc.get('name', '').strip()
+            if name and name not in seen_loc_names:
+                seen_loc_names.add(name)
+                merged_locations.append(loc)
+    merged_world['locations'] = merged_locations
+
+    # Items: dedup by name
+    seen_item_names = set()
+    merged_items = []
+    for ws in world_settings:
+        for item in ws.get('items', []):
+            name = item.get('name', '').strip()
+            if name and name not in seen_item_names:
+                seen_item_names.add(name)
+                merged_items.append(item)
+    merged_world['items'] = merged_items
+
+    # Special rules and themes: merge lists, dedup
+    merged_world['special_rules'] = list(set(
+        rule for ws in world_settings for rule in ws.get('special_rules', [])
+    ))
+    merged_world['key_themes'] = list(set(
+        theme for ws in world_settings for theme in ws.get('key_themes', [])
+    ))
+
+known_locations = merged_world.get('locations', [])
+print(f"\nKnown locations from world: {len(known_locations)} (merged from {len(world_settings)} chunks)")
 
 # Phase 2: Scene extraction (with location hints from world)
 print(f"\nStage 4: Scene + Narrative Unit extraction...")
@@ -359,11 +395,10 @@ relationships = [Relationship(character_a=r['character_a'], character_b=r['chara
 dialogues = [Dialogue(speaker=d['speaker'], listener=d.get('listener'), content=d['content'], context=d.get('context'), chapter=d.get('chapter')) for d in mapped_dialogues]
 
 ws_model = None
-if world_settings:
-    ws = world_settings[0]
-    locations = [Location(**l) for l in ws.get('locations',[])]
-    items = [Item(**it) for it in ws.get('items',[])]
-    ws_model = WorldSetting(era=ws.get('era'), genre=ws.get('genre'), summary=ws.get('setting_summary'), special_rules=ws.get('special_rules',[]), key_themes=ws.get('key_themes',[]))
+if merged_world:
+    locations = [Location(**l) for l in merged_world.get('locations', [])]
+    items = [Item(**it) for it in merged_world.get('items', [])]
+    ws_model = WorldSetting(era=merged_world.get('era'), genre=merged_world.get('genre'), summary=merged_world.get('setting_summary'), special_rules=merged_world.get('special_rules', []), key_themes=merged_world.get('key_themes', []))
 else:
     locations, items = [], []
 
